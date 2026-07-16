@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import re
 from playwright.async_api import async_playwright
 from telegram import Bot
 
@@ -12,7 +13,7 @@ EVENT_URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
 
 bot = Bot(token=BOT_TOKEN)
 
-last_available = 0
+STATE_FILE = "last.txt"
 
 
 async def send_telegram(message):
@@ -23,6 +24,23 @@ async def send_telegram(message):
     print("Telegram poslat")
 
 
+def get_old_value():
+
+    try:
+        with open(STATE_FILE, "r") as f:
+            return int(f.read())
+    except:
+        return 0
+
+
+
+def save_value(value):
+
+    with open(STATE_FILE, "w") as f:
+        f.write(str(value))
+
+
+
 def get_available(data):
 
     total = 0
@@ -30,10 +48,10 @@ def get_available(data):
     try:
         text = json.dumps(data)
 
-        # pronalazi sve Available vrednosti
-        import re
-
-        values = re.findall(r'"Available"\s*:\s*(\d+)', text)
+        values = re.findall(
+            r'"Available"\s*:\s*(\d+)',
+            text
+        )
 
         for v in values:
             total += int(v)
@@ -44,9 +62,8 @@ def get_available(data):
     return total
 
 
-async def check_tickets():
 
-    global last_available
+async def check_tickets():
 
     async with async_playwright() as p:
 
@@ -59,11 +76,7 @@ async def check_tickets():
 
         async def handle_response(response):
 
-            global last_available
-
             if "seatmap" in response.url:
-
-                print("SEATMAP:", response.url)
 
                 try:
                     data = await response.json()
@@ -72,19 +85,22 @@ async def check_tickets():
 
                     print("Dostupno:", available)
 
-                    # samo kada se pojave nove karte
-                    if available > 0 and available != last_available:
+                    old = get_old_value()
 
-                        last_available = available
+                    if available > old:
+
+                        save_value(available)
 
                         await send_telegram(
-                            f"🔥 UFC KARTE DOSTUPNE!\n\n"
+                            "🔥 UFC KARTE DOSTUPNE!\n\n"
                             f"Broj dostupnih: {available}\n\n"
                             f"{EVENT_URL}"
                         )
 
+
                 except Exception as e:
                     print("JSON greska:", e)
+
 
 
         page.on(
@@ -97,6 +113,7 @@ async def check_tickets():
             EVENT_URL,
             wait_until="networkidle"
         )
+
 
         print("Stranica otvorena")
 
