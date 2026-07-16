@@ -1,3 +1,4 @@
+
 import os
 import json
 import asyncio
@@ -38,6 +39,13 @@ async def check_tickets():
         print("Stranica otvorena")
 
         await page.wait_for_timeout(5000)
+
+        content = await page.content()
+
+        with open("page.html", "w", encoding="utf-8") as f:
+            f.write(content)
+
+        print("HTML sacuvan")
 
         await browser.close()
 
