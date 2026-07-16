@@ -1,26 +1,50 @@
 import os
+import json
+import asyncio
 import requests
+from playwright.async_api import async_playwright
+from telegram import Bot
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
+EVENT_URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
 
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
+bot = Bot(token=BOT_TOKEN)
 
-response = requests.get(URL, headers=headers)
 
-if response.status_code == 200:
-    text = f"✅ UFC stranica je dostupna.\n\n{URL}"
-else:
-    text = f"❌ Greška {response.status_code} prilikom otvaranja stranice."
+async def send_telegram(message):
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text=message
+    )
 
-requests.post(
-    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-    data={
-        "chat_id": CHAT_ID,
-        "text": text
-    }
-)
+
+async def check_tickets():
+
+    async with async_playwright() as p:
+
+        browser = await p.chromium.launch(
+            headless=True
+        )
+
+        page = await browser.new_page()
+
+        await page.goto(
+            EVENT_URL,
+            wait_until="networkidle"
+        )
+
+        print("Stranica otvorena")
+
+        await page.wait_for_timeout(5000)
+
+        await browser.close()
+
+
+async def main():
+    await check_tickets()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
