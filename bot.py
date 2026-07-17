@@ -13,8 +13,9 @@ EVENT_URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
 
 bot = Bot(token=BOT_TOKEN)
 
-last_state = None
-first_load = True
+current_states = []
+baseline_state = None
+checking_done = False
 
 
 async def send_telegram(message):
@@ -32,10 +33,9 @@ def make_state(data):
 
     try:
 
-        important = data.get("data", {})
-
+        # pratimo ceo seatmap odgovor
         text = json.dumps(
-            important,
+            data.get("data", {}),
             sort_keys=True
         )
 
@@ -46,14 +46,13 @@ def make_state(data):
     except Exception as e:
 
         print("State greska:", e)
-
         return None
 
 
 
 async def check_tickets():
 
-    global last_state, first_load
+    global baseline_state, checking_done
 
 
     async with async_playwright() as p:
@@ -67,7 +66,7 @@ async def check_tickets():
 
         async def handle_response(response):
 
-            global last_state, first_load
+            global baseline_state, checking_done
 
 
             if "seatmap" in response.url:
@@ -78,33 +77,46 @@ async def check_tickets():
 
                     state = make_state(data)
 
-
                     if not state:
                         return
 
 
-                    # prvo samo zapamti stanje
-                    if first_load:
+                    if not checking_done:
 
-                        last_state = state
+                        current_states.append(state)
 
-                        print("Početno stanje sačuvano")
+                        print(
+                            "Ucitavanje stanja:",
+                            len(current_states)
+                        )
 
                         return
 
 
-                    # posle toga prati promene
-                    if state != last_state:
+                    if baseline_state is None:
 
-                        last_state = state
+                        baseline_state = state
+
+                        print(
+                            "Osnovno stanje sacuvano"
+                        )
+
+                        return
+
+
+                    if state != baseline_state:
+
+                        baseline_state = state
 
                         await send_telegram(
                             "🔥 UFC PROMENA KARATA!\n\n"
-                            "Promenilo se stanje karata.\n\n"
+                            "Promenjena dostupnost karata.\n\n"
                             f"{EVENT_URL}"
                         )
 
-                        print("Promena poslata")
+                        print(
+                            "Promena poslata"
+                        )
 
 
                 except Exception as e:
@@ -128,17 +140,25 @@ async def check_tickets():
         )
 
 
-        # čekamo da se svi seatmap pozivi završe
-        await page.wait_for_timeout(10000)
+        # čekamo da se svi početni API pozivi završe
+        await page.wait_for_timeout(15000)
 
 
-        first_load = False
+        # uzimamo poslednji dobijeni odgovor kao početno stanje
+        if current_states:
+
+            baseline_state = current_states[-1]
 
 
-        print("Stranica otvorena")
+        checking_done = True
 
 
-        await page.wait_for_timeout(2000)
+        print(
+            "Praćenje aktivno"
+        )
+
+
+        await page.wait_for_timeout(3000)
 
 
         await browser.close()
