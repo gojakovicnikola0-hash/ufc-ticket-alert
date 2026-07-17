@@ -13,8 +13,6 @@ EVENT_URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
 
 bot = Bot(token=BOT_TOKEN)
 
-STATE_FILE = "last.txt"
-
 
 async def send_telegram(message):
     await bot.send_message(
@@ -24,42 +22,22 @@ async def send_telegram(message):
     print("Telegram poslat")
 
 
-def get_old_value():
+def find_numbers(data):
 
-    try:
-        with open(STATE_FILE, "r") as f:
-            return int(f.read())
-    except:
-        return 0
+    found = []
 
+    text = json.dumps(data)
 
+    # svi brojevi iza Available
+    values = re.findall(
+        r'"Available"\s*:\s*(\d+)',
+        text
+    )
 
-def save_value(value):
+    for v in values:
+        found.append(int(v))
 
-    with open(STATE_FILE, "w") as f:
-        f.write(str(value))
-
-
-
-def get_available(data):
-
-    total = 0
-
-    try:
-        text = json.dumps(data)
-
-        values = re.findall(
-            r'"Available"\s*:\s*(\d+)',
-            text
-        )
-
-        for v in values:
-            total += int(v)
-
-    except Exception as e:
-        print("Greska:", e)
-
-    return total
+    return sum(found)
 
 
 
@@ -74,32 +52,41 @@ async def check_tickets():
         page = await browser.new_page()
 
 
+        sent = False
+
+
         async def handle_response(response):
 
+            nonlocal sent
+
             if "seatmap" in response.url:
+
+                print("SEATMAP:", response.url)
 
                 try:
                     data = await response.json()
 
-                    available = get_available(data)
+                    available = find_numbers(data)
 
-                    print("Dostupno:", available)
+                    print("UKUPNO:", available)
 
-                    old = get_old_value()
+                    # ispis prvog dela odgovora za analizu
+                    print(json.dumps(data)[:3000])
 
-                    if available > old:
 
-                        save_value(available)
+                    if available > 0 and not sent:
+
+                        sent = True
 
                         await send_telegram(
                             "🔥 UFC KARTE DOSTUPNE!\n\n"
-                            f"Broj dostupnih: {available}\n\n"
+                            f"Broj: {available}\n\n"
                             f"{EVENT_URL}"
                         )
 
 
                 except Exception as e:
-                    print("JSON greska:", e)
+                    print("GRESKA:", e)
 
 
 
@@ -118,6 +105,7 @@ async def check_tickets():
         print("Stranica otvorena")
 
         await page.wait_for_timeout(15000)
+
 
         await browser.close()
 
