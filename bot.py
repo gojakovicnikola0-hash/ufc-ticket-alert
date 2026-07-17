@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-import re
+import hashlib
 from playwright.async_api import async_playwright
 from telegram import Bot
 
@@ -13,83 +13,57 @@ EVENT_URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
 
 bot = Bot(token=BOT_TOKEN)
 
+last_state = None
+
 
 async def send_telegram(message):
+
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text=message
+    )
+
+    print("Telegram poslat")
+
+
+
+def make_state(data):
+
     try:
-        await bot.send_message(
-            chat_id=CHAT_ID,
-            text=message
+        # uzimamo samo deo koji predstavlja mapu/karte
+        important = data.get("data", {})
+
+        text = json.dumps(
+            important,
+            sort_keys=True
         )
-        print("Telegram poslat")
+
+        return hashlib.md5(
+            text.encode()
+        ).hexdigest()
 
     except Exception as e:
-        print("Telegram greska:", e)
-
-
-
-def find_real_tickets(data):
-
-    found = 0
-
-    try:
-
-        text = json.dumps(data)
-
-        # traži samo stvarne seat podatke
-        patterns = [
-            r'"AvailableSeats"\s*:\s*(\d+)',
-            r'"FreeSeats"\s*:\s*(\d+)',
-            r'"AvailableTickets"\s*:\s*(\d+)',
-            r'"SeatsAvailable"\s*:\s*(\d+)'
-        ]
-
-
-        for p in patterns:
-
-            result = re.findall(p, text)
-
-            for x in result:
-                found += int(x)
-
-
-        # ako postoje direktna sedišta
-        if "Seat" in text:
-            found += len(
-                re.findall(
-                    r'"Seat"',
-                    text
-                )
-            )
-
-
-    except Exception as e:
-        print("Parser greska:", e)
-
-
-    return found
+        print("State greska:", e)
+        return None
 
 
 
 async def check_tickets():
 
-    async with async_playwright() as p:
+    global last_state
 
+    async with async_playwright() as p:
 
         browser = await p.chromium.launch(
             headless=True
         )
 
-
         page = await browser.new_page()
-
-
-        sent = False
-
 
 
         async def handle_response(response):
 
-            nonlocal sent
+            global last_state
 
 
             if "seatmap" in response.url:
@@ -98,43 +72,37 @@ async def check_tickets():
 
                     data = await response.json()
 
-
-                    print("SEATMAP")
-
-                    print(
-                        "KLJUCEVI:",
-                        data.keys()
-                    )
+                    state = make_state(data)
 
 
-                    real = find_real_tickets(data)
+                    if state and last_state is None:
+
+                        last_state = state
+
+                        print("Početno stanje sačuvano")
 
 
-                    print(
-                        "STVARNE KARTE:",
-                        real
-                    )
+                    elif state != last_state:
 
-
-                    if real > 0 and not sent:
-
-                        sent = True
+                        last_state = state
 
 
                         await send_telegram(
-                            "🔥 UFC KARTE DOSTUPNE!\n\n"
-                            f"Broj: {real}\n\n"
+                            "🔥 UFC PROMENA KARATA!\n\n"
+                            "Promenjena je dostupnost/mesto karata.\n\n"
                             f"{EVENT_URL}"
                         )
+
+
+                        print("Promena poslata")
 
 
                 except Exception as e:
 
                     print(
-                        "GRESKA:",
+                        "JSON greska:",
                         e
                     )
-
 
 
         page.on(
@@ -143,16 +111,13 @@ async def check_tickets():
         )
 
 
-
         await page.goto(
             EVENT_URL,
             wait_until="networkidle"
         )
 
 
-        print(
-            "Stranica otvorena"
-        )
+        print("Stranica otvorena")
 
 
         await page.wait_for_timeout(
