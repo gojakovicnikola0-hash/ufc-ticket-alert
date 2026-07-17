@@ -15,29 +15,58 @@ bot = Bot(token=BOT_TOKEN)
 
 
 async def send_telegram(message):
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text=message
-    )
-    print("Telegram poslat")
+    try:
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text=message
+        )
+        print("Telegram poslat")
+
+    except Exception as e:
+        print("Telegram greska:", e)
 
 
-def find_numbers(data):
 
-    found = []
+def find_real_tickets(data):
 
-    text = json.dumps(data)
+    found = 0
 
-    # svi brojevi iza Available
-    values = re.findall(
-        r'"Available"\s*:\s*(\d+)',
-        text
-    )
+    try:
 
-    for v in values:
-        found.append(int(v))
+        text = json.dumps(data)
 
-    return sum(found)
+        # traži samo stvarne seat podatke
+        patterns = [
+            r'"AvailableSeats"\s*:\s*(\d+)',
+            r'"FreeSeats"\s*:\s*(\d+)',
+            r'"AvailableTickets"\s*:\s*(\d+)',
+            r'"SeatsAvailable"\s*:\s*(\d+)'
+        ]
+
+
+        for p in patterns:
+
+            result = re.findall(p, text)
+
+            for x in result:
+                found += int(x)
+
+
+        # ako postoje direktna sedišta
+        if "Seat" in text:
+            found += len(
+                re.findall(
+                    r'"Seat"',
+                    text
+                )
+            )
+
+
+    except Exception as e:
+        print("Parser greska:", e)
+
+
+    return found
 
 
 
@@ -45,9 +74,11 @@ async def check_tickets():
 
     async with async_playwright() as p:
 
+
         browser = await p.chromium.launch(
             headless=True
         )
+
 
         page = await browser.new_page()
 
@@ -55,38 +86,54 @@ async def check_tickets():
         sent = False
 
 
+
         async def handle_response(response):
 
             nonlocal sent
 
+
             if "seatmap" in response.url:
 
-                print("SEATMAP:", response.url)
-
                 try:
+
                     data = await response.json()
 
-                    available = find_numbers(data)
 
-                    print("UKUPNO:", available)
+                    print("SEATMAP")
 
-                    # ispis prvog dela odgovora za analizu
-                    print(json.dumps(data)[:3000])
+                    print(
+                        "KLJUCEVI:",
+                        data.keys()
+                    )
 
 
-                    if available > 0 and not sent:
+                    real = find_real_tickets(data)
+
+
+                    print(
+                        "STVARNE KARTE:",
+                        real
+                    )
+
+
+                    if real > 0 and not sent:
 
                         sent = True
 
+
                         await send_telegram(
                             "🔥 UFC KARTE DOSTUPNE!\n\n"
-                            f"Broj: {available}\n\n"
+                            f"Broj: {real}\n\n"
                             f"{EVENT_URL}"
                         )
 
 
                 except Exception as e:
-                    print("GRESKA:", e)
+
+                    print(
+                        "GRESKA:",
+                        e
+                    )
 
 
 
@@ -96,15 +143,21 @@ async def check_tickets():
         )
 
 
+
         await page.goto(
             EVENT_URL,
             wait_until="networkidle"
         )
 
 
-        print("Stranica otvorena")
+        print(
+            "Stranica otvorena"
+        )
 
-        await page.wait_for_timeout(15000)
+
+        await page.wait_for_timeout(
+            15000
+        )
 
 
         await browser.close()
@@ -118,4 +171,5 @@ async def main():
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
