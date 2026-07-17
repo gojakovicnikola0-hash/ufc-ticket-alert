@@ -14,6 +14,7 @@ EVENT_URL = "https://tickets.rs/event/ufc_fight_night_belgrade_26702"
 bot = Bot(token=BOT_TOKEN)
 
 last_state = None
+first_load = True
 
 
 async def send_telegram(message):
@@ -30,7 +31,7 @@ async def send_telegram(message):
 def make_state(data):
 
     try:
-        # uzimamo samo deo koji predstavlja mapu/karte
+
         important = data.get("data", {})
 
         text = json.dumps(
@@ -43,14 +44,17 @@ def make_state(data):
         ).hexdigest()
 
     except Exception as e:
+
         print("State greska:", e)
+
         return None
 
 
 
 async def check_tickets():
 
-    global last_state
+    global last_state, first_load
+
 
     async with async_playwright() as p:
 
@@ -63,7 +67,7 @@ async def check_tickets():
 
         async def handle_response(response):
 
-            global last_state
+            global last_state, first_load
 
 
             if "seatmap" in response.url:
@@ -75,24 +79,30 @@ async def check_tickets():
                     state = make_state(data)
 
 
-                    if state and last_state is None:
+                    if not state:
+                        return
+
+
+                    # prvo samo zapamti stanje
+                    if first_load:
 
                         last_state = state
 
                         print("Početno stanje sačuvano")
 
+                        return
 
-                    elif state != last_state:
+
+                    # posle toga prati promene
+                    if state != last_state:
 
                         last_state = state
 
-
                         await send_telegram(
                             "🔥 UFC PROMENA KARATA!\n\n"
-                            "Promenjena je dostupnost/mesto karata.\n\n"
+                            "Promenilo se stanje karata.\n\n"
                             f"{EVENT_URL}"
                         )
-
 
                         print("Promena poslata")
 
@@ -103,6 +113,7 @@ async def check_tickets():
                         "JSON greska:",
                         e
                     )
+
 
 
         page.on(
@@ -117,12 +128,17 @@ async def check_tickets():
         )
 
 
+        # čekamo da se svi seatmap pozivi završe
+        await page.wait_for_timeout(10000)
+
+
+        first_load = False
+
+
         print("Stranica otvorena")
 
 
-        await page.wait_for_timeout(
-            15000
-        )
+        await page.wait_for_timeout(2000)
 
 
         await browser.close()
